@@ -14,7 +14,11 @@ import (
 
 // BackupManager
 type BackupManager struct {
-	rdsClient *rds.Client
+	st SnapshotTaker
+}
+
+type SnapshotTaker interface {
+	CreateDBClusterSnapshot(context.Context, *rds.CreateDBClusterSnapshotInput, ...func(*rds.Options)) (*rds.CreateDBClusterSnapshotOutput, error)
 }
 
 type BackupManagerError string
@@ -31,7 +35,7 @@ func (b *BackupManager) TriggerSnapshots(clusterIdentifers ...string) error {
 	}
 
 	for _, clusterIdentifer := range clusterIdentifers {
-		_, err := b.rdsClient.CreateDBClusterSnapshot(
+		_, err := b.st.CreateDBClusterSnapshot(
 			context.TODO(),
 			&rds.CreateDBClusterSnapshotInput{
 				DBClusterIdentifier: aws.String(clusterIdentifer),
@@ -57,7 +61,7 @@ func main() {
 
 	rdsClient := rds.NewFromConfig(cfg)
 	bm := &BackupManager{
-		rdsClient: rdsClient,
+		st: rdsClient,
 	}
 
 	if err := bm.TriggerSnapshots(os.Args[1:]...); err != nil {
