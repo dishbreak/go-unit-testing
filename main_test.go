@@ -100,3 +100,33 @@ func TestTriggerSnapshotsWithError(t *testing.T) {
 		{"my-cluster-1", "testing-my-cluster-1"},
 	}, st.journal)
 }
+
+func TestFormSnapshotIdentifier(t *testing.T) {
+	type testCase struct {
+		input  string
+		result string
+	}
+
+	testCases := map[string]testCase{
+		"no truncation when less than 64 characters": {
+			input:  "my-cluster-1",
+			result: "testing-my-cluster-1",
+		},
+		"truncates down to 64 characters": {
+			input:  "my-cluster-1-11111111111111111111111111111111111111111110",
+			result: "testing-my-cluster-1-1111111111111111111111111111111111111111111",
+		},
+		"doesn't end with a hyphen": {
+			input:  "my-cluster-1-",
+			result: "testing-my-cluster-1",
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// no need to set a SnapshotTaker for this test
+			bm := &BackupManager{prefix: "testing"}
+			assert.Equal(t, tc.result, bm.formSnapshotIdentifier(tc.input))
+		})
+	}
+}

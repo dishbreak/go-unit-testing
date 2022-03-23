@@ -39,13 +39,7 @@ func (b *BackupManager) TriggerSnapshots(clusterIdentifers ...string) error {
 	}
 
 	for _, clusterIdentifer := range clusterIdentifers {
-		snapshotName := strings.Join([]string{b.prefix, clusterIdentifer}, "-")
-		// truncate to 64 characters
-		if len(snapshotName) >= 64 {
-			snapshotName = snapshotName[:64]
-		}
-		// remove the hyphen
-		snapshotName = strings.TrimSuffix(snapshotName, "-")
+		snapshotName := b.formSnapshotIdentifier(clusterIdentifer)
 		_, err := b.st.CreateDBClusterSnapshot(
 			context.TODO(),
 			&rds.CreateDBClusterSnapshotInput{
@@ -63,6 +57,17 @@ func (b *BackupManager) TriggerSnapshots(clusterIdentifers ...string) error {
 		}
 	}
 	return nil
+}
+
+func (b *BackupManager) formSnapshotIdentifier(clusterIdentifer string) (snapshotID string) {
+	snapshotID = strings.Join([]string{b.prefix, clusterIdentifer}, "-")
+	// truncate to 64 characters
+	if len(snapshotID) >= 64 {
+		snapshotID = snapshotID[:64]
+	}
+	// remove the hyphen
+	snapshotID = strings.TrimSuffix(snapshotID, "-")
+	return
 }
 
 func main() {
