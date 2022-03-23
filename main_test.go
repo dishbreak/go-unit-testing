@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -34,6 +35,27 @@ func NewFakeSnapshotTaker() *fakeSnapshotTaker {
 	}
 }
 
+type flakySnapshotTaker struct {
+	*fakeSnapshotTaker
+	offensiveClusterID string
+	err                error
+}
+
+func NewFlakySnapshotTaker(offensiveClusterID string, err error) *flakySnapshotTaker {
+	return &flakySnapshotTaker{
+		fakeSnapshotTaker:  NewFakeSnapshotTaker(),
+		offensiveClusterID: offensiveClusterID,
+		err:                err,
+	}
+}
+
+func (f *flakySnapshotTaker) CreateDBClusterSnapshot(ctx context.Context, in *rds.CreateDBClusterSnapshotInput, optFns ...func(*rds.Options)) (*rds.CreateDBClusterSnapshotOutput, error) {
+	if *in.DBClusterIdentifier == f.offensiveClusterID {
+		return nil, f.err
+	}
+	return f.fakeSnapshotTaker.CreateDBClusterSnapshot(ctx, in, optFns...)
+}
+
 func TestTriggerSnapshots(t *testing.T) {
 	st := NewFakeSnapshotTaker()
 	bm := &BackupManager{
@@ -45,6 +67,36 @@ func TestTriggerSnapshots(t *testing.T) {
 	assert.Equal(t, []snapshotCreationRecord{
 		{"my-cluster-1", "testing-my-cluster-1"},
 		{"my-cluster-2", "testing-my-cluster-2"},
+		{"my-cluster-3", "testing-my-cluster-3"},
+	}, st.journal)
+}
+
+func TestTriggerSnapshotsWithContinueError(t *testing.T) {
+	// this snapshot taker will fail to create a snapshot for my-cluster-2
+	st := NewFlakySnapshotTaker("my-cluster-2", &types.DBClusterNotFoundFault{})
+	bm := &BackupManager{
+		st:     st,
+		prefix: "testing",
+	}
+	err := bm.TriggerSnapshots("my-cluster-1", "my-cluster-2", "my-cluster-3")
+	assert.Nil(t, err)
+	assert.Equal(t, []snapshotCreationRecord{
+		{"my-cluster-1", "testing-my-cluster-1"},
+		{"my-cluster-3", "testing-my-cluster-3"},
+	}, st.journal)
+}
+
+func TestTriggerSnapshotsWithError(t *testing.T) {
+	// this snapshot taker will fail to create a snapshot for my-cluster-2
+	st := NewFlakySnapshotTaker("my-cluster-2", errors.New("general failure"))
+	bm := &BackupManager{
+		st:     st,
+		prefix: "testing",
+	}
+	err := bm.TriggerSnapshots("my-cluster-1", "my-cluster-2", "my-cluster-3")
+	assert.Nil(t, err)
+	assert.Equal(t, []snapshotCreationRecord{
+		{"my-cluster-1", "testing-my-cluster-1"},
 		{"my-cluster-3", "testing-my-cluster-3"},
 	}, st.journal)
 }
