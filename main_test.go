@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -27,6 +26,10 @@ func (f *fakeSnapshotTaker) CreateDBClusterSnapshot(ctx context.Context, in *rds
 			DBClusterSnapshotIdentifier: in.DBClusterSnapshotIdentifier,
 		},
 	}, nil
+}
+
+func (f *fakeSnapshotTaker) GetJournal() []snapshotCreationRecord {
+	return f.journal
 }
 
 func NewFakeSnapshotTaker() *fakeSnapshotTaker {
@@ -57,48 +60,66 @@ func (f *flakySnapshotTaker) CreateDBClusterSnapshot(ctx context.Context, in *rd
 }
 
 func TestTriggerSnapshots(t *testing.T) {
-	st := NewFakeSnapshotTaker()
-	bm := &BackupManager{
-		st:     st,
-		prefix: "testing",
+	type testCase struct {
+		clusterIDs      []string
+		st              SnapshotTaker
+		expectedError   error
+		expectedJournal []snapshotCreationRecord
 	}
-	err := bm.TriggerSnapshots("my-cluster-1", "my-cluster-2", "my-cluster-3")
-	assert.Nil(t, err)
-	assert.Equal(t, []snapshotCreationRecord{
-		{"my-cluster-1", "testing-my-cluster-1"},
-		{"my-cluster-2", "testing-my-cluster-2"},
-		{"my-cluster-3", "testing-my-cluster-3"},
-	}, st.journal)
-}
 
-func TestTriggerSnapshotsWithContinueError(t *testing.T) {
-	// this snapshot taker will fail to create a snapshot for my-cluster-2
-	st := NewFlakySnapshotTaker("my-cluster-2", &types.DBClusterNotFoundFault{})
-	bm := &BackupManager{
-		st:     st,
-		prefix: "testing",
+	unhandledError := &types.DBClusterSnapshotAlreadyExistsFault{}
+	testCases := map[string]testCase{
+		"happy path with no errors": {
+			clusterIDs: []string{"my-cluster-1", "my-cluster-2", "my-cluster-3"},
+			st:         NewFakeSnapshotTaker(),
+			expectedJournal: []snapshotCreationRecord{
+				{"my-cluster-1", "testing-my-cluster-1"},
+				{"my-cluster-2", "testing-my-cluster-2"},
+				{"my-cluster-3", "testing-my-cluster-3"},
+			},
+		},
+		"encounters cluster not found error": {
+			clusterIDs: []string{"my-cluster-1", "my-cluster-2", "my-cluster-3"},
+			st:         NewFlakySnapshotTaker("my-cluster-2", &types.DBClusterNotFoundFault{}),
+			expectedJournal: []snapshotCreationRecord{
+				{"my-cluster-1", "testing-my-cluster-1"},
+				{"my-cluster-3", "testing-my-cluster-3"},
+			},
+		},
+		"encounters unexpected error": {
+			clusterIDs:    []string{"my-cluster-1", "my-cluster-2", "my-cluster-3"},
+			st:            NewFlakySnapshotTaker("my-cluster-2", unhandledError),
+			expectedError: unhandledError,
+			expectedJournal: []snapshotCreationRecord{
+				{"my-cluster-1", "testing-my-cluster-1"},
+			},
+		},
+		"no identifiers passed in": {
+			st:              NewFakeSnapshotTaker(),
+			expectedError:   ErrNoIdentifiersSpecified,
+			expectedJournal: []snapshotCreationRecord{},
+		},
 	}
-	err := bm.TriggerSnapshots("my-cluster-1", "my-cluster-2", "my-cluster-3")
-	assert.Nil(t, err)
-	assert.Equal(t, []snapshotCreationRecord{
-		{"my-cluster-1", "testing-my-cluster-1"},
-		{"my-cluster-3", "testing-my-cluster-3"},
-	}, st.journal)
-}
 
-func TestTriggerSnapshotsWithError(t *testing.T) {
-	// this snapshot taker will fail to create a snapshot for my-cluster-2
-	// the generic error will cause BackupManager to return early with the error.
-	st := NewFlakySnapshotTaker("my-cluster-2", errors.New("general failure"))
-	bm := &BackupManager{
-		st:     st,
-		prefix: "testing",
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			bm := &BackupManager{
+				st:     tc.st,
+				prefix: "testing",
+			}
+
+			err := bm.TriggerSnapshots(tc.clusterIDs...)
+			assert.ErrorIs(t, tc.expectedError, err)
+
+			type journaler interface {
+				GetJournal() []snapshotCreationRecord
+			}
+
+			j, ok := tc.st.(journaler)
+			assert.True(t, ok, "cannot use SnapshotTaker as journaler")
+			assert.Equal(t, tc.expectedJournal, j.GetJournal())
+		})
 	}
-	err := bm.TriggerSnapshots("my-cluster-1", "my-cluster-2", "my-cluster-3")
-	assert.NotNil(t, err)
-	assert.Equal(t, []snapshotCreationRecord{
-		{"my-cluster-1", "testing-my-cluster-1"},
-	}, st.journal)
 }
 
 func TestFormSnapshotIdentifier(t *testing.T) {
