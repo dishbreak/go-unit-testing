@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -14,7 +17,8 @@ import (
 
 // BackupManager
 type BackupManager struct {
-	st SnapshotTaker
+	st     SnapshotTaker
+	prefix string
 }
 
 type SnapshotTaker interface {
@@ -35,10 +39,18 @@ func (b *BackupManager) TriggerSnapshots(clusterIdentifers ...string) error {
 	}
 
 	for _, clusterIdentifer := range clusterIdentifers {
+		snapshotName := strings.Join([]string{b.prefix, clusterIdentifer}, "-")
+		// truncate to 64 characters
+		if len(snapshotName) >= 64 {
+			snapshotName = snapshotName[:64]
+		}
+		// remove the hyphen
+		snapshotName = strings.TrimSuffix(snapshotName, "-")
 		_, err := b.st.CreateDBClusterSnapshot(
 			context.TODO(),
 			&rds.CreateDBClusterSnapshotInput{
-				DBClusterIdentifier: aws.String(clusterIdentifer),
+				DBClusterIdentifier:         aws.String(clusterIdentifer),
+				DBClusterSnapshotIdentifier: aws.String(snapshotName),
 			},
 		)
 		if err != nil {
@@ -61,7 +73,8 @@ func main() {
 
 	rdsClient := rds.NewFromConfig(cfg)
 	bm := &BackupManager{
-		st: rdsClient,
+		st:     rdsClient,
+		prefix: fmt.Sprintf("run-%d", time.Now().Unix()),
 	}
 
 	if err := bm.TriggerSnapshots(os.Args[1:]...); err != nil {
