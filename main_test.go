@@ -88,15 +88,15 @@ func TestTriggerSnapshotsWithContinueError(t *testing.T) {
 
 func TestTriggerSnapshotsWithError(t *testing.T) {
 	// this snapshot taker will fail to create a snapshot for my-cluster-2
+	// the generic error will cause BackupManager to return early with the error.
 	st := NewFlakySnapshotTaker("my-cluster-2", errors.New("general failure"))
 	bm := &BackupManager{
 		st:     st,
 		prefix: "testing",
 	}
 	err := bm.TriggerSnapshots("my-cluster-1", "my-cluster-2", "my-cluster-3")
-	assert.Nil(t, err)
+	assert.NotNil(t, err)
 	assert.Equal(t, []snapshotCreationRecord{
 		{"my-cluster-1", "testing-my-cluster-1"},
-		{"my-cluster-3", "testing-my-cluster-3"},
 	}, st.journal)
 }
