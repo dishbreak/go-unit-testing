@@ -12,7 +12,7 @@ package main
 import (
 	"context"
 	"os"
-  "strings"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -26,18 +26,18 @@ func main() {
 	}
 
 	rdsClient := rds.NewFromConfig(cfg)
-  // os.Args[0] will always be the name of the executable, so skip it.
+	// os.Args[0] will always be the name of the executable, so skip it.
 	for _, name := range os.Args[1:] {
-    snapshotName := strings.Join([]string{"backup", name}, "-")
-    // truncate to 64 characters
-    if len(snapshotName) => 64 {
-      snapshotName = snapshotName[:64]
-    }
-    // remove the hyphen
-    snapshotName = strings.TrimSuffix(snapshotName, "-")
+		snapshotName := strings.Join([]string{"backup", name}, "-")
+		// truncate to 64 characters
+		if len(snapshotName) => 64 {
+			snapshotName = snapshotName[:64]
+		}
+		// remove the hyphen
+		snapshotName = strings.TrimSuffix(snapshotName, "-")
 		rdsClient.CreateDBClusterSnapshot(context.TODO(), &rds.CreateDBClusterSnapshotInput{
 			DBClusterIdentifier: aws.String(name),
-      DBClusterSnapshotIdentifier: aws.String(snapshotName),
+			DBClusterSnapshotIdentifier: aws.String(snapshotName),
 		})
 	}
 }
@@ -62,12 +62,12 @@ One easy refactor here would be to place the code that creates the snapshots in 
 ```go
 type BackupManager struct {
 	rdsClient *rds.Client
-  prefix    string
+	prefix    string
 }
 
 type BackupManagerError string
 func (b BackupManagerError) Error() string {
-  return string(b)
+	return string(b)
 }
 
 const ErrNoIdentifiersSpecified BackupManagerError = "recieved no cluster identifiers"
@@ -77,7 +77,7 @@ func (b *BackupManager) TriggerSnapshots(clusterIdentifers ...string) error {
 		return ErrNoIdentifiersSpecified
 	}
 	
-		for _, clusterIdentifer := range clusterIdentifers {
+	for _, clusterIdentifer := range clusterIdentifers {
 		snapshotName := strings.Join([]string{b.prefix, clusterIdentifer}, "-")
 		// truncate to 64 characters
 		if len(snapshotName) >= 64 {
@@ -100,6 +100,7 @@ func (b *BackupManager) TriggerSnapshots(clusterIdentifers ...string) error {
 			}
 			return err
 		}
+	}
 	return nil
 }
 ```
@@ -110,7 +111,7 @@ And here's how the `main()` function would refactor. Note that we're using a `..
 	rdsClient := rds.NewFromConfig(cfg)
 	bm := &BackupManager{
 		rdsClient: rdsClient,
-    prefix: fmt.Sprintf("run-%d", time.Now().Unix())
+		prefix: fmt.Sprintf("run-%d", time.Now().Unix())
 	}
 
 	if err := bm.TriggerSnapshots(os.Args[1:]...); err != nil {
@@ -123,7 +124,7 @@ This code looks great, but there's a big problem when you go to write unit tests
 ```go
 type BackupManager struct {
 	rdsClient *rds.Client //D'oh! Can't test this...
-  prefix    string
+	prefix    string
 }
 ```
 
@@ -247,7 +248,7 @@ if err != nil {
 }
 ```
 
-It'd be nice if our mock interface could throw an error. That'd let us exercise our two different error handling scenarios. Let's meet our `flakySnapshotTaker`. 
+It'd be nice if our mock implementation could throw an error. That'd let us exercise our two different error handling scenarios. Let's meet our `flakySnapshotTaker`. 
 
 ```go
 type flakySnapshotTaker struct {
